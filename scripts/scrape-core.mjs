@@ -32,6 +32,7 @@ const ORANGE_SKIP = /watch|huawei|xiaomi|iphone|samsung|air fryer|tablet|router|
 
 // B2C mobile families we keep, mapped to line type
 function orangeLineType(name) {
+  if (/\bpro\b/i.test(name)) return null; // Maak Pro = not B2C mass-market
   if (/visitor/i.test(name)) return 'visitors';
   if (/humat|watan/i.test(name)) return 'egypt';
   if (/prepaid/i.test(name)) return 'prepaid';
@@ -67,7 +68,7 @@ async function scrapeOrange() {
       }
     } catch { /* skip */ }
   };
-  const ids = Array.from({ length: 900 }, (_, i) => i + 1);
+  const ids = Array.from({ length: 1400 }, (_, i) => i + 1);
   for (let i = 0; i < ids.length; i += 60) {
     await Promise.all(ids.slice(i, i + 60).map(probe));
   }
