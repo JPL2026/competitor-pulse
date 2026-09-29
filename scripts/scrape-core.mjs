@@ -336,10 +336,12 @@ export async function runScrape() {
     ...zainFinal,
   ];
   if (!next.length) throw new Error('all scrapers returned 0 offers — aborting');
+  // dedupe by id (same product can appear on several category pages/probes)
+  const deduped = [...new Map(next.map((o) => [o.id, o])).values()];
 
-  const events = diffOffers(prev, next);
-  await sbUpsert('atl_offers', next);
-  const keepIds = new Set(next.map((o) => o.id));
+  const events = diffOffers(prev, deduped);
+  await sbUpsert('atl_offers', deduped);
+  const keepIds = new Set(deduped.map((o) => o.id));
   const scrapedOps = new Set(['zain', ...(orange.length ? ['orange'] : []), ...(umniah.length ? ['umniah'] : [])]);
   const stale = prev.filter((o) => scrapedOps.has(o.operator) && !keepIds.has(o.id));
   for (const s of stale) {
