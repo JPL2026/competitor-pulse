@@ -40,6 +40,54 @@ function orangeLineType(name) {
   return null; // everything else (Maak Pro, devices…) is excluded
 }
 
+// Direct category scrapes (pages the blind probe can miss): maak p2, humat, visitors
+async function scrapeOrangeCats() {
+  const CATS = [
+    { id: 245, pages: 2, base: 'https://eshop.orange.jo/en/mobile/maak-lines' },
+    { id: 243, pages: 1, base: 'https://eshop.orange.jo/en/mobile/humat-al-watan' },
+    { id: 244, pages: 1, base: 'https://eshop.orange.jo/en/mobile/visitors-plans' },
+  ];
+  const un = (t) => t.replace(/&#x27;/g, "'").replace(/&amp;/g, '&').trim();
+  const out = [];
+  for (const c of CATS) {
+    for (let pi = 1; pi <= c.pages; pi++) {
+      try {
+        const headers = {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest',
+          'User-Agent': UA,
+        };
+        if (pi > 1) headers['Referer'] = `${c.base}?pi=${pi}`;
+        const res = await fetch('https://eshop.orange.jo/CustomProduct/CatalogFilterProduct', {
+          method: 'POST', headers,
+          body: `categoryId=${c.id}&loadmore=${pi > 1}&isAffiliate=false`,
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok) continue;
+        const d = await res.json();
+        const h = d?.html || '';
+        for (const card of h.split('col-lg-4 col-md-4 col-sm-4 col-6').slice(1)) {
+          const nm = card.match(/productnamreEN d-none">([^<]+)</);
+          const lk = card.match(/href="(\/(?:en\/mobile|visitors-plans)\/[^"]+)"/);
+          const pm = card.match(/productPriceEN d-none">([\d.]+)</);
+          if (!nm || !pm) continue;
+          const name = un(nm[1]);
+          if (ORANGE_SKIP.test(name)) continue;
+          if (!orangeLineType(name)) continue;
+          out.push({
+            Id: `cat-${slug(name)}`,
+            Name: name,
+            FullPath: lk ? lk[1] : null,
+            CatPrice: parseFloat(pm[1]),
+            CatExcl: /Excluding Tax/i.test(card),
+          });
+        }
+      } catch { /* skip */ }
+    }
+  }
+  return out;
+}
+
 async function scrapeOrange() {
   const found = [];
   const probe = async (id) => {
@@ -76,19 +124,27 @@ async function scrapeOrange() {
 
   const enrich = async (p) => {
     const name = p.Name;
-    const price = p.ProductPrice.PriceValue; // displayed incl. tax on PDP
+    let price = p?.ProductPrice?.PriceValue ?? p?.CatPrice ?? 0; // listing price
+    let priceExcl = p?.CatExcl ? p.CatPrice : null;
     const oldPrice = p?.ProductPrice?.OldPriceValue || 0;
     const seName = p?.SeName;
+    const detailPath = p?.FullPath || (seName ? `/en/mobile/${seName}` : null);
     const features = [];
     let dataGb = gbFrom(JSON.stringify(p?.ProductAttributes ?? ''));
-    let priceExcl = null;
-    if (seName) {
+    if (detailPath) {
+      for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const dres = await fetch(`https://eshop.orange.jo/en/mobile/${seName}`, {
-          headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(12000),
+        const dres = await fetch(`https://eshop.orange.jo${detailPath}`, {
+          headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(15000),
         });
         if (dres.ok) {
           const dhtml = await dres.text();
+          if (!/price-sim-full">[\d.]/.test(dhtml) && attempt === 0) continue; // retry once on flaky PDP
+          const pf = [...dhtml.matchAll(/price-sim-full">([\d.]+)/g)].map((m) => parseFloat(m[1]));
+          if (pf.length) {
+            price = pf[0]; // PDP first price = incl. tax
+            if (pf[1]) priceExcl = pf[1]; // second = excl. tax
+          }
           const gm = dhtml.match(/enjoy\s+(\d+(?:\.\d+)?)\s*GB\s+internet/i)
             || dhtml.match(/content="[^"]*?(\d+(?:\.\d+)?)\s*GB\s+Internet/i)
             || dhtml.match(/(\d+(?:\.\d+)?)\s*GB\s+internet/i);
@@ -101,7 +157,9 @@ async function scrapeOrange() {
             if (/GB|G|min|SMS|call|carry|roam|unlimited/i.test(t) && features.length < 8) features.push(t);
           }
         }
-      } catch { /* optional */ }
+      } catch { /* optional */ continue; }
+      break;
+      }
     }
     const promo = oldPrice > price
       ? { label: `-${Math.round((1 - price / oldPrice) * 100)}%`, detail: `Was JD ${oldPrice} — now JD ${price}`, promoPrice: price }
@@ -127,11 +185,15 @@ async function scrapeOrange() {
       scraped_at: new Date().toISOString(),
     };
   };
+  const catProds = await scrapeOrangeCats();
+  const known = new Set(unique.map((p) => (p.Name || '').trim().toLowerCase()));
+  const extra = catProds.filter((p) => !known.has(p.Name.trim().toLowerCase()) && p.CatPrice > 0 && p.CatPrice <= 120);
+  const all = [...unique, ...extra];
   const offers = [];
-  for (let i = 0; i < unique.length; i += 10) {
-    offers.push(...(await Promise.all(unique.slice(i, i + 10).map(enrich))));
+  for (let i = 0; i < all.length; i += 10) {
+    offers.push(...(await Promise.all(all.slice(i, i + 10).map(enrich))));
   }
-  return offers;
+  return offers.filter((o) => o.kind && o.monthly_price_jod > 0);
 }
 
 // ─── UMNIAH (eshop.umniah.com — Magento Hyvä, embedded product JSON) ─────
