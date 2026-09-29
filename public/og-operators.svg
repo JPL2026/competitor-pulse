@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="96" viewBox="0 0 320 96" fill="none" font-family="Arial, sans-serif" font-weight="700">
+  <rect x="0" y="0" width="96" height="96" rx="20" fill="#F9E8F1"/>
+  <text x="48" y="66" font-size="52" fill="#B0457B" text-anchor="middle">Z</text>
+  <rect x="112" y="0" width="96" height="96" rx="20" fill="#FCEBDD"/>
+  <text x="160" y="66" font-size="52" fill="#C2571B" text-anchor="middle">O</text>
+  <rect x="224" y="0" width="96" height="96" rx="20" fill="#E4F3EB"/>
+  <text x="272" y="66" font-size="52" fill="#2E7D5B" text-anchor="middle">U</text>
+</svg>
